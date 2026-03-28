@@ -68,7 +68,8 @@ async function getAccessToken(ctx) {
 
     const data = JSON.stringify({
         clientID: config.clientID,
-        clientSecret: config.clientSecret
+        clientSecret: config.clientSecret,
+        storageType: "PERSONAL"  // 添加这一行，如果是家庭盘改为 "FAMILY"
     });
 
     try {
@@ -788,9 +789,12 @@ async function processImages(ctx, imgList, options) {
                 }
 
                 // 6. Complete upload
+
+                // 在调用 uploadComplete 前先保存 preuploadID
+                const currentPreuploadID = uploadResult.preuploadID;
                 ctx.log.info(`Completing upload for ${fileName}`);
                 let completeRes = await withTimeout(
-                    uploadComplete(ctx, accessToken, uploadResult.preuploadID),
+                    uploadComplete(ctx, accessToken, currentPreuploadID),   // 使用保存的值
                     20000,  // 20 second timeout
                     'Timed out while completing upload'
                 );
@@ -806,7 +810,8 @@ async function processImages(ctx, imgList, options) {
                         { initialDelay: 2000, maxRetries: 15, retryDelay: 1500, lookupInterval: 3, totalTimeoutMs: 60000 };
                     
                     // Store the original preuploadID for safe keeping
-                    const originalPreuploadID = uploadResult.preuploadID;
+                    // const originalPreuploadID = uploadResult.preuploadID;
+                    const originalPreuploadID = currentPreuploadID; //// 关键修复：使用之前保存的变量
                     ctx.log.info(`Original preuploadID: ${originalPreuploadID}`);
                     
                     // Add a delay before starting async polling to allow server processing
