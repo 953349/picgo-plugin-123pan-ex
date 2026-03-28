@@ -89,7 +89,11 @@ async function createDirectory(ctx, accessToken, parentID, dirName) {
         ctx.log.info('No directory name provided, using root directory');
         return { code: 0, data: { fileID: "" } }; // Return empty fileID to indicate root
     }
-    
+
+    // 获取 storageType 配置
+    const userConfig = ctx.getConfig('picBed.123pan');
+    const storageType = userConfig?.storageType || "PERSONAL";
+
     const options = {
         hostname: 'open-api.123pan.com',
         path: '/upload/v1/oss/file/mkdir',
@@ -127,8 +131,8 @@ async function createDirectory(ctx, accessToken, parentID, dirName) {
             ctx.log.warn(`Directory ${sanitizedName} already exists, trying to find its ID.`);
 
             try {
-                const fileList = await getFileList(ctx, accessToken, normalizedParentID);
-                
+                const fileList = await getFileList(ctx, accessToken, normalizedParentID,storageType);
+
                 if (fileList && fileList.data && Array.isArray(fileList.data.fileList)) {
                     for (const file of fileList.data.fileList) {
                         if (file.filename === sanitizedName && file.type === 1) {
@@ -157,7 +161,7 @@ async function createDirectory(ctx, accessToken, parentID, dirName) {
 }
 
 
-async function getFileList(ctx, accessToken, parentFileID = "") {
+async function getFileList(ctx, accessToken, parentFileID = "",storageType = "PERSONAL") {
     const options = {
         hostname: 'open-api.123pan.com',
         path: '/api/v1/oss/file/list',
@@ -174,6 +178,7 @@ async function getFileList(ctx, accessToken, parentFileID = "") {
     const data = JSON.stringify({
         parentFileID: normalizedParentID,
         limit: 100,
+        storageType: storageType  // 在第 201 行后添加这行，以确保正确传递 storageType 参数
     });
 
     try {
@@ -937,6 +942,10 @@ async function handleAsyncPolling(ctx, options) {
         lookupInterval = 3,  // How often to try file lookup
         totalTimeoutMs = 60000 // Maximum time for this entire polling operation
     } = options;
+
+    // 添加：获取 storageType 配置
+    const userConfig = ctx.getConfig('picBed.123pan');
+    const storageType = userConfig?.storageType || "PERSONAL";
     
     let retries = 0;
     let consecutiveEmptyPreuploadErrors = 0;
@@ -946,11 +955,12 @@ async function handleAsyncPolling(ctx, options) {
     // Calculate maximum processing time to avoid hanging
     const startTime = Date.now();
     const endTime = startTime + totalTimeoutMs;
+
     
     // First attempt direct lookup - this might find the file if it was already processed
     try {
         ctx.log.info(`Initial file lookup attempt for ${fileName}`);
-        const fileList = await getFileList(ctx, accessToken, parentFileID);
+        const fileList = await getFileList(ctx, accessToken, parentFileID,storageType);
         if (fileList && fileList.data && Array.isArray(fileList.data.fileList)) {
             for (const file of fileList.data.fileList) {
                 if (file.filename === fileName) {
@@ -1001,7 +1011,7 @@ async function handleAsyncPolling(ctx, options) {
             if (retries % lookupInterval === 0) {
                 try {
                     ctx.log.info(`Periodic file lookup attempt for ${fileName} (retry ${retries})`);
-                    const fileList = await getFileList(ctx, accessToken, parentFileID);
+                    const fileList = await getFileList(ctx, accessToken, parentFileID,storageType);
                     if (fileList && fileList.data && Array.isArray(fileList.data.fileList)) {
                         for (const file of fileList.data.fileList) {
                             if (file.filename === fileName) {
@@ -1042,7 +1052,7 @@ async function handleAsyncPolling(ctx, options) {
                     ctx.log.warn(`Multiple preuploadID errors, making final file lookup attempt...`);
                     
                     try {
-                        const fileList = await getFileList(ctx, accessToken, parentFileID);
+                        const fileList = await getFileList(ctx, accessToken, parentFileID,storageType);
                         if (fileList && fileList.data && Array.isArray(fileList.data.fileList)) {
                             for (const file of fileList.data.fileList) {
                                 if (file.filename === fileName) {
@@ -1097,7 +1107,7 @@ async function handleAsyncPolling(ctx, options) {
         // Try one final lookup before giving up
         try {
             ctx.log.info(`Final timeout file lookup attempt for ${fileName}`);
-            const fileList = await getFileList(ctx, accessToken, parentFileID);
+            const fileList = await getFileList(ctx, accessToken, parentFileID,storageType);
             if (fileList && fileList.data && Array.isArray(fileList.data.fileList)) {
                 for (const file of fileList.data.fileList) {
                     if (file.filename === fileName) {
