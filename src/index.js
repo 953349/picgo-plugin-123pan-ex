@@ -122,7 +122,7 @@ async function createDirectory(ctx, accessToken, parentID, dirName) {
         // Try to handle common errors
         const errorMessage = err.message.toLowerCase();
         const isDirectoryExists =
-            errorMessage.includes('目录名') &&
+            (errorMessage.includes('目录名') || errorMessage.includes('文件夹')) &&
             (errorMessage.includes('不能重名') || errorMessage.includes('已存在'));
 
         if (isDirectoryExists) {
