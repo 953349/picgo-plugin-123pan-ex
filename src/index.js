@@ -38,14 +38,14 @@ function makeRequest(options, data = null) {
 function safeGet(obj, path, defaultValue = null) {
     const keys = path.split('.');
     let result = obj;
-    
+
     for (const key of keys) {
         if (result === undefined || result === null || typeof result !== 'object') {
             return defaultValue;
         }
         result = result[key];
     }
-    
+
     return result !== undefined ? result : defaultValue;
 }
 
@@ -69,7 +69,7 @@ async function getAccessToken(ctx) {
     const data = JSON.stringify({
         clientID: config.clientID,
         clientSecret: config.clientSecret,
-        storageType: "PERSONAL"  // 添加这一行，如果是家庭盘改为 "FAMILY"
+        type: 1
     });
 
     try {
@@ -87,12 +87,10 @@ async function getAccessToken(ctx) {
 async function createDirectory(ctx, accessToken, parentID, dirName) {
     if (!dirName || typeof dirName !== 'string' || dirName.trim() === '') {
         ctx.log.info('No directory name provided, using root directory');
-        return { code: 0, data: { fileID: "" } }; // Return empty fileID to indicate root
+        return {code: 0, data: {fileID: ""}}; // Return empty fileID to indicate root
     }
 
-    // 获取 storageType 配置
     const userConfig = ctx.getConfig('picBed.123pan');
-    const storageType = userConfig?.storageType || "PERSONAL";
 
     const options = {
         hostname: 'open-api.123pan.com',
@@ -123,45 +121,45 @@ async function createDirectory(ctx, accessToken, parentID, dirName) {
     } catch (err) {
         // Try to handle common errors
         const errorMessage = err.message.toLowerCase();
-        const isDirectoryExists = 
-            errorMessage.includes('目录名') && 
+        const isDirectoryExists =
+            errorMessage.includes('目录名') &&
             (errorMessage.includes('不能重名') || errorMessage.includes('已存在'));
-        
+
         if (isDirectoryExists) {
             ctx.log.warn(`Directory ${sanitizedName} already exists, trying to find its ID.`);
 
             try {
-                const fileList = await getFileList(ctx, accessToken, normalizedParentID,storageType);
+                const fileList = await getFileList(ctx, accessToken, normalizedParentID);
 
                 if (fileList && fileList.data && Array.isArray(fileList.data.fileList)) {
                     for (const file of fileList.data.fileList) {
                         if (file.filename === sanitizedName && file.type === 1) {
-                            ctx.log.info(`Found existing directory ID: ${file.fileID}`);
-                            return { code: 0, data: { fileID: file.fileID } };
+                            ctx.log.info(`Found existing directory ID: ${file.fileId}`);
+                            return {code: 0, data: {fileID: file.fileId}};
                         }
                     }
                 } else {
                     ctx.log.warn(`File list response format unexpected: ${JSON.stringify(fileList)}`);
                 }
-                
+
                 // Couldn't find the directory in the list, return root as fallback
                 ctx.log.warn(`Directory ${sanitizedName} mentioned as existing but not found in listing, using root directory`);
-                return { code: 0, data: { fileID: "" } };
+                return {code: 0, data: {fileID: ""}};
             } catch (listError) {
                 ctx.log.error(`Error getting file list: ${listError.message}`);
                 // Fallback to root directory
-                return { code: 0, data: { fileID: "" } };
+                return {code: 0, data: {fileID: ""}};
             }
         }
-        
+
         ctx.log.error(`Failed to create or find directory: ${err.message}`);
         // In case of error, fall back to root directory
-        return { code: 0, data: { fileID: "" } };
+        return {code: 0, data: {fileID: ""}};
     }
 }
 
 
-async function getFileList(ctx, accessToken, parentFileID = "",storageType = "PERSONAL") {
+async function getFileList(ctx, accessToken, parentFileID = "") {
     const options = {
         hostname: 'open-api.123pan.com',
         path: '/api/v1/oss/file/list',
@@ -172,31 +170,31 @@ async function getFileList(ctx, accessToken, parentFileID = "",storageType = "PE
             'Authorization': `Bearer ${accessToken}`
         }
     };
-    
+
     const normalizedParentID = normalizeParentFileID(parentFileID);
-    
+
     const data = JSON.stringify({
         parentFileID: normalizedParentID,
         limit: 100,
-        storageType: storageType  // 在第 201 行后添加这行，以确保正确传递 storageType 参数
+        type: 1
     });
 
     try {
         ctx.log.info(`Getting file list for parent ID: ${normalizedParentID || 'root'}`);
         const res = await makeRequest(options, data);
-        
+
         // Ensure the response has the expected structure
         if (!res.data || !res.data.fileList) {
             res.data = res.data || {};
             res.data.fileList = res.data.fileList || [];
             ctx.log.warn('File list response missing expected data structure, using empty list');
         }
-        
+
         return res;
     } catch (error) {
         ctx.log.error(`Error getting file list: ${error.message}`);
         // Return a valid empty structure to avoid further errors
-        return { code: 0, data: { fileList: [], lastFileID: '-1' } };
+        return {code: 0, data: {fileList: [], lastFileID: '-1'}};
     }
 }
 
@@ -246,7 +244,7 @@ async function uploadComplete(ctx, accessToken, preuploadID) {
     if (!preuploadID) {
         throw new Error('Empty preuploadID passed to uploadComplete function');
     }
-    
+
     const options = {
         hostname: 'open-api.123pan.com',
         path: '/upload/v1/oss/file/upload_complete',
@@ -259,7 +257,7 @@ async function uploadComplete(ctx, accessToken, preuploadID) {
     };
 
     ctx.log.info(`Completing upload with preuploadID: ${preuploadID}`);
-    
+
     const data = JSON.stringify({
         preuploadID: preuploadID
     });
@@ -278,7 +276,7 @@ async function uploadAsyncResult(ctx, accessToken, preuploadID) {
     if (!preuploadID) {
         throw new Error('Empty preuploadID passed to uploadAsyncResult function');
     }
-    
+
     const options = {
         hostname: 'open-api.123pan.com',
         path: '/upload/v1/oss/file/upload_async_result',
@@ -289,14 +287,14 @@ async function uploadAsyncResult(ctx, accessToken, preuploadID) {
             'Authorization': `Bearer ${accessToken}`
         }
     };
-    
+
     // Log the request being made
     ctx.log.info(`Calling upload_async_result API with preuploadID: ${preuploadID}`);
-    
+
     const data = JSON.stringify({
         preuploadID: preuploadID
     });
-    
+
     try {
         const result = await makeRequest(options, data);
         return result;
@@ -345,7 +343,7 @@ function generateFallbackUrl(fileID) {
 
 async function uploadFileSlice(ctx, url, buffer) {
     return new Promise((resolve, reject) => {
-        const req = https.request(url, { method: 'PUT', headers: { 'Content-Length': buffer.length } }, (res) => { // Add Content-Length
+        const req = https.request(url, {method: 'PUT', headers: {'Content-Length': buffer.length}}, (res) => { // Add Content-Length
             let body = '';
             res.on('data', (chunk) => body += chunk);
             res.on('end', () => {
@@ -366,15 +364,15 @@ async function uploadFileSlice(ctx, url, buffer) {
 function sanitizeFilename(filename) {
     // Remove characters not allowed by 123pan: "V:*?|><
     let sanitized = filename.replace(/["\V:*?|><]/g, '_');
-    
+
     // Ensure the filename is under 255 characters
     if (sanitized.length > 254) {
-        const extension = sanitized.includes('.') 
-            ? sanitized.substring(sanitized.lastIndexOf('.')) 
+        const extension = sanitized.includes('.')
+            ? sanitized.substring(sanitized.lastIndexOf('.'))
             : '';
         sanitized = sanitized.substring(0, 254 - extension.length) + extension;
     }
-    
+
     return sanitized;
 }
 
@@ -382,7 +380,7 @@ function sanitizeFilename(filename) {
 function normalizeParentFileID(parentFileID) {
     // If it's empty or null/undefined, return an empty string
     if (!parentFileID) return "";
-    
+
     // Otherwise ensure it's a string
     return String(parentFileID);
 }
@@ -393,7 +391,7 @@ async function handleUpload(ctx) {
     ctx.log.info(`PicGo upload source: ${ctx.getConfig('picBed.current') || 'unknown'}`);
     const isGuiMode = Boolean(ctx.gui);
     ctx.log.info(`Running in environment: ${isGuiMode ? 'GUI' : 'CLI'}`);
-    
+
     // Detect if we're likely being called by Typora
     const isTypora = !isGuiMode && process.argv.some(arg => arg.includes('typora'));
     if (isTypora) {
@@ -408,7 +406,7 @@ async function handleUpload(ctx) {
     } catch (e) {
         ctx.log.warn(`Error logging context output: ${e.message}`);
     }
-    
+
     const userConfig = ctx.getConfig('picBed.123pan');
     if (!userConfig) {
         throw new Error('123pan uploader configuration is missing.');
@@ -432,7 +430,7 @@ async function handleUpload(ctx) {
     // Track if this is potentially a first-time upload in the session
     // We'll handle these uploads with extra care and retries
     let isFirstUploadThisSession = false;
-    
+
     // Get and check the upload history flag
     try {
         const uploadState = ctx.getConfig(`${pluginName}.uploadState`) || {};
@@ -448,7 +446,7 @@ async function handleUpload(ctx) {
                 ctx.log.info('Last upload was more than 5 minutes ago, treating as first upload');
             }
         }
-        
+
         // Update the upload state
         ctx.saveConfig({
             [`${pluginName}.uploadState`]: {
@@ -477,14 +475,14 @@ async function handleUpload(ctx) {
     // 1. Get access token (reuse if available and not expired)
     let accessTokenData = ctx.getConfig(pluginName);
     let tokenExpiration = null;
-    
+
     try {
         if (accessTokenData && accessTokenData.expiredAt) {
             tokenExpiration = new Date(accessTokenData.expiredAt);
             // Add a 5-minute buffer to avoid token expiration during upload
             const fiveMinutes = 5 * 60 * 1000;
             const bufferExpiration = new Date(tokenExpiration.getTime() - fiveMinutes);
-            
+
             if (bufferExpiration <= new Date()) {
                 ctx.log.info(`Access token expiring soon (${accessTokenData.expiredAt}), refreshing...`);
                 accessTokenData = null; // Force refresh
@@ -512,20 +510,20 @@ async function handleUpload(ctx) {
         // Set a timeout to force completion after 60 seconds for Typora
         uploadTimeout = setTimeout(() => {
             ctx.log.warn('Upload timeout reached (60s) - forcing completion for Typora');
-            
+
             // Find any images that don't have URLs and set fallback values
             for (const img of imgList) {
                 if (!img.imgUrl || !img.url) {
                     ctx.log.warn(`Setting fallback URL for timed-out image: ${img.fileName || 'unnamed'}`);
-                    
+
                     // Set a placeholder URL to ensure Typora knows the upload completed
                     const placeholderUrl = `https://www.123pan.com/timeout-placeholder-${Date.now()}`;
                     img.imgUrl = placeholderUrl;
                     img.url = placeholderUrl;
-                    
+
                     // Mark as failed in our stats
                     stats.failed++;
-                    
+
                     // Emit a notification about the timeout
                     ctx.emit('notification', {
                         title: 'Upload Timeout',
@@ -534,7 +532,7 @@ async function handleUpload(ctx) {
                     });
                 }
             }
-            
+
             // Force the return of the context to complete the upload cycle
             ctx.log.info('Returning context to PicGo after timeout');
         }, 60000); // 60 second timeout
@@ -549,7 +547,7 @@ async function handleUpload(ctx) {
             isTypora,
             stats
         });
-        
+
         // Clear the timeout if we finished normally
         if (uploadTimeout) {
             clearTimeout(uploadTimeout);
@@ -560,13 +558,13 @@ async function handleUpload(ctx) {
         ctx.log.info(`Upload complete: ${stats.success}/${stats.total} successful, ${stats.failed} failed, ${stats.retries} retries`);
         if (stats.failed > 0) {
             ctx.log.error(`Failed to upload ${stats.failed} images`);
-            
+
             // Special Typora handling for failed uploads
             if (isTypora && isFirstUploadThisSession && stats.failed > 0) {
                 ctx.log.warn('First Typora upload failed - this is a known issue. Please try again by right-clicking the image.');
             }
         }
-        
+
         // For Typora uploads, ensure each image has url/imgUrl properties set
         // This is critical as Typora specifically looks for these values
         if (isTypora) {
@@ -578,7 +576,7 @@ async function handleUpload(ctx) {
                     img.url = fallbackUrl;
                 }
             }
-            
+
             // Log the final image URLs that will be returned to Typora
             ctx.log.info(`Returning URLs to Typora: ${imgList.map(img => img.url).join(', ')}`);
         }
@@ -588,9 +586,9 @@ async function handleUpload(ctx) {
             clearTimeout(uploadTimeout);
             uploadTimeout = null;
         }
-        
+
         ctx.log.error(`Unexpected error in upload process: ${error.message}`);
-        
+
         // Ensure we mark all uploads as failed if we hit a catastrophic error
         for (const img of imgList) {
             if (!img.imgUrl || !img.url) {
@@ -598,7 +596,7 @@ async function handleUpload(ctx) {
                 img.url = '';
             }
         }
-        
+
         // Emit a notification about the error
         ctx.emit('notification', {
             title: 'Upload Error',
@@ -613,7 +611,7 @@ async function handleUpload(ctx) {
 
 // Separate function to process images with retry capability
 async function processImages(ctx, imgList, options) {
-    const { accessToken, parentFileID: configParentFileID, isFirstUploadThisSession, isTypora, stats } = options;
+    const {accessToken, parentFileID: configParentFileID, isFirstUploadThisSession, isTypora, stats} = options;
     const failedList = [];
     const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -623,7 +621,7 @@ async function processImages(ctx, imgList, options) {
         const timeoutPromise = new Promise((_, reject) => {
             timeoutId = setTimeout(() => reject(new Error(errorMessage)), timeoutMs);
         });
-        
+
         return Promise.race([
             promise,
             timeoutPromise
@@ -654,17 +652,17 @@ async function processImages(ctx, imgList, options) {
 
     // Set up automatic retry for Typora first uploads
     const maxAutoRetries = isTypora && isFirstUploadThisSession ? 3 : 0;
-    
+
     for (let i = 0; i < imgList.length; i++) {
         let img = imgList[i];
         let retryCount = 0;
         let uploadSuccess = false;
-        
+
         // For Typora, add extra logging to help diagnose issues
         if (isTypora) {
             ctx.log.info(`Typora image details: fileName=${img.fileName}, path=${img.path || 'none'}, extname=${img.extname || 'none'}`);
         }
-        
+
         while (retryCount <= maxAutoRetries && !uploadSuccess) {
             if (retryCount > 0) {
                 const retryDelay = 3000 * retryCount; // 3s, 6s, 9s for retries
@@ -672,21 +670,21 @@ async function processImages(ctx, imgList, options) {
                 await delay(retryDelay);
                 stats.retries++;
             }
-            
+
             try {
                 // Add a small delay between uploads to avoid API rate limits
                 if (i > 0 && retryCount === 0) await delay(500);
-                
+
                 // Log detailed information about the image
-                ctx.log.info(`Processing image ${i+1}/${imgList.length}: ${img.fileName || 'unnamed'} (attempt ${retryCount + 1})`);
-                
+                ctx.log.info(`Processing image ${i + 1}/${imgList.length}: ${img.fileName || 'unnamed'} (attempt ${retryCount + 1})`);
+
                 // Ensure the image has required properties
                 if (!img.fileName) {
                     const ext = img.extname || '.png'; // Default to .png if no extension
                     img.fileName = `${Date.now()}${ext}`;
                     ctx.log.warn(`Image missing fileName, generated: ${img.fileName}`);
                 }
-                
+
                 // Get the image buffer
                 let buffer;
                 try {
@@ -700,11 +698,11 @@ async function processImages(ctx, imgList, options) {
                     ctx.log.error(`Failed to get image buffer: ${bufferError.message}`);
                     throw new Error(`Failed to get image data: ${bufferError.message}`);
                 }
-                
+
                 if (!buffer || buffer.length === 0) {
                     throw new Error('Image buffer is empty or invalid');
                 }
-                
+
                 const md5 = crypto.createHash('md5').update(buffer).digest('hex');
                 const fileSize = buffer.length;
                 const fileName = sanitizeFilename(img.fileName);
@@ -719,7 +717,7 @@ async function processImages(ctx, imgList, options) {
                     'Timed out while creating file on 123pan'
                 );
                 let uploadResult = createRes.data;
-                
+
                 if (!uploadResult) {
                     throw new Error(`Failed to create file: No result data returned`);
                 }
@@ -730,7 +728,7 @@ async function processImages(ctx, imgList, options) {
                     if (!uploadResult.fileID) {
                         throw new Error('Fast upload succeeded but fileID is missing');
                     }
-                    
+
                     // Get the proper download URL for fast upload
                     try {
                         const fileDetails = await withTimeout(
@@ -752,7 +750,7 @@ async function processImages(ctx, imgList, options) {
                         img.imgUrl = fallbackUrls.main;
                         ctx.log.warn(`File details API failed, using fallback URL: ${img.imgUrl}`);
                     }
-                    
+
                     img.url = img.imgUrl;
                     ctx.log.info(`Fast upload download URL: ${img.imgUrl}`);
                     delete img.buffer; // Clean up buffer
@@ -775,20 +773,20 @@ async function processImages(ctx, imgList, options) {
                         15000,  // 15 second timeout
                         `Timed out while getting upload URL for slice ${sliceNo}`
                     );
-                    
+
                     const start = (sliceNo - 1) * uploadResult.sliceSize;
                     const end = Math.min(sliceNo * uploadResult.sliceSize, fileSize);
                     const sliceBuffer = buffer.slice(start, end);
-                    
+
                     if (sliceBuffer.length === 0) break;
-                    
+
                     ctx.log.info(`Uploading slice ${sliceNo}, size: ${sliceBuffer.length} bytes`);
                     await withTimeout(
                         uploadFileSlice(ctx, uploadUrlRes.data.presignedURL, sliceBuffer),
                         30000,  // 30 second timeout for actual upload
                         `Timed out while uploading slice ${sliceNo}`
                     );
-                    
+
                     sliceNo++;
                     if (end >= fileSize) break; // Finished uploading all slices
                 }
@@ -808,20 +806,32 @@ async function processImages(ctx, imgList, options) {
                 // 7. Check if async result is needed
                 if (uploadResult.async) {
                     ctx.log.info(`Async processing required, polling for results...`);
-                    
+
                     // For Typora first uploads with multiple retries, use even more aggressive polling strategy
-                    const pollingStrategy = isTypora && isFirstUploadThisSession ? 
-                        { initialDelay: 2000, maxRetries: 10, retryDelay: 2000, lookupInterval: 2, totalTimeoutMs: 45000 } :
-                        { initialDelay: 2000, maxRetries: 15, retryDelay: 1500, lookupInterval: 3, totalTimeoutMs: 60000 };
-                    
+                    const pollingStrategy = isTypora && isFirstUploadThisSession ?
+                        {
+                            initialDelay: 2000,
+                            maxRetries: 10,
+                            retryDelay: 2000,
+                            lookupInterval: 2,
+                            totalTimeoutMs: 45000
+                        } :
+                        {
+                            initialDelay: 2000,
+                            maxRetries: 15,
+                            retryDelay: 1500,
+                            lookupInterval: 3,
+                            totalTimeoutMs: 60000
+                        };
+
                     // Store the original preuploadID for safe keeping
                     // const originalPreuploadID = uploadResult.preuploadID;
                     const originalPreuploadID = currentPreuploadID; //// 关键修复：使用之前保存的变量
                     ctx.log.info(`Original preuploadID: ${originalPreuploadID}`);
-                    
+
                     // Add a delay before starting async polling to allow server processing
                     await delay(pollingStrategy.initialDelay);
-                    
+
                     // Try to handle async polling with better error recovery and timeout
                     const asyncResult = await withTimeout(
                         handleAsyncPolling(ctx, {
@@ -835,7 +845,7 @@ async function processImages(ctx, imgList, options) {
                         pollingStrategy.totalTimeoutMs,
                         'Timed out during async polling'
                     );
-                    
+
                     // Update the upload result with the async result
                     if (asyncResult && asyncResult.fileID) {
                         uploadResult = asyncResult;
@@ -870,7 +880,7 @@ async function processImages(ctx, imgList, options) {
                     img.imgUrl = fallbackUrls.main;
                     ctx.log.warn(`File details API failed, using fallback URL: ${img.imgUrl}. Error: ${error.message}`);
                 }
-                
+
                 img.url = img.imgUrl;
                 delete img.buffer; // Clean up buffer
                 ctx.log.info(`File uploaded successfully: ${img.imgUrl}`);
@@ -878,7 +888,7 @@ async function processImages(ctx, imgList, options) {
                 // Mark as success and update stats
                 uploadSuccess = true;
                 stats.success++;
-                
+
             } catch (error) {
                 if (retryCount < maxAutoRetries) {
                     ctx.log.warn(`Upload attempt ${retryCount + 1} failed: ${error.message}. Will retry automatically.`);
@@ -887,7 +897,7 @@ async function processImages(ctx, imgList, options) {
                     // This was the last attempt, mark as failed
                     stats.failed++;
                     ctx.log.error(`Failed to upload ${img.fileName} after ${retryCount} retries: ${error.message}`);
-                    
+
                     // For Typora, always set a URL even on failure to avoid hanging
                     if (isTypora) {
                         const errorUrl = `https://www.123pan.com/upload-failed-${Date.now()}`;
@@ -895,7 +905,7 @@ async function processImages(ctx, imgList, options) {
                         img.url = errorUrl;
                         ctx.log.warn(`Set error URL for Typora: ${errorUrl}`);
                     }
-                    
+
                     // Specific handling for empty preuploadID errors
                     if (error.message.includes('预上传ID不能为空') || error.message.includes('preuploadID')) {
                         if (isTypora) {
@@ -904,16 +914,16 @@ async function processImages(ctx, imgList, options) {
                             ctx.log.warn('This is a known issue with first uploads. Try uploading again.');
                         }
                     }
-                    
+
                     failedList.push(img.fileName);
-                    
+
                     // Mark this image as failed but continue with others
                     if (!isTypora) {
                         img.imgUrl = '';
                         img.url = '';
                     }
                     delete img.buffer;
-                    
+
                     ctx.emit('notification', {
                         title: 'Upload Failed',
                         body: `Error uploading ${img.fileName}: ${error.message}`,
@@ -924,17 +934,17 @@ async function processImages(ctx, imgList, options) {
             }
         }
     }
-    
-    return { failedList };
+
+    return {failedList};
 }
 
 // Dedicated function for async polling with better error handling
 async function handleAsyncPolling(ctx, options) {
-    const { 
-        accessToken, 
-        originalPreuploadID, 
-        fileName, 
-        parentFileID, 
+    const {
+        accessToken,
+        originalPreuploadID,
+        fileName,
+        parentFileID,
         uploadResult,
         maxRetries = 15,
         initialDelay = 2000,
@@ -943,31 +953,30 @@ async function handleAsyncPolling(ctx, options) {
         totalTimeoutMs = 60000 // Maximum time for this entire polling operation
     } = options;
 
-    // 添加：获取 storageType 配置
+
     const userConfig = ctx.getConfig('picBed.123pan');
-    const storageType = userConfig?.storageType || "PERSONAL";
-    
+
     let retries = 0;
     let consecutiveEmptyPreuploadErrors = 0;
     const maxEmptyPreuploadRetries = 3;
     const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
-    
+
     // Calculate maximum processing time to avoid hanging
     const startTime = Date.now();
     const endTime = startTime + totalTimeoutMs;
 
-    
+
     // First attempt direct lookup - this might find the file if it was already processed
     try {
         ctx.log.info(`Initial file lookup attempt for ${fileName}`);
-        const fileList = await getFileList(ctx, accessToken, parentFileID,storageType);
+        const fileList = await getFileList(ctx, accessToken, parentFileID);
         if (fileList && fileList.data && Array.isArray(fileList.data.fileList)) {
             for (const file of fileList.data.fileList) {
                 if (file.filename === fileName) {
-                    ctx.log.info(`Found uploaded file immediately in directory: ${file.fileID}`);
+                    ctx.log.info(`Found uploaded file immediately in directory: ${file.fileId}`);
                     return {
                         completed: true,
-                        fileID: file.fileID
+                        fileID: file.fileId
                     };
                 }
             }
@@ -975,25 +984,25 @@ async function handleAsyncPolling(ctx, options) {
     } catch (lookupError) {
         ctx.log.warn(`Initial file lookup failed: ${lookupError.message}`);
     }
-    
+
     // Initialize result with the original data
-    let result = { ...uploadResult, preuploadID: originalPreuploadID };
-    
+    let result = {...uploadResult, preuploadID: originalPreuploadID};
+
     while (retries < maxRetries && Date.now() < endTime) {
         // Check for overall timeout
         const timeRemaining = endTime - Date.now();
         if (timeRemaining <= 1000) {  // Less than 1 second remaining
             ctx.log.warn(`Approaching polling timeout, ${timeRemaining}ms remaining - making final attempt`);
         }
-        
+
         try {
             // Always use the original preuploadID for polling
             ctx.log.info(`Polling with preuploadID: ${originalPreuploadID} (attempt ${retries + 1}/${maxRetries})`);
             let asyncRes = await getUploadAsyncResultWithRetry(ctx, accessToken, originalPreuploadID);
-            
+
             // Reset consecutive error counter on successful request
             consecutiveEmptyPreuploadErrors = 0;
-            
+
             if (asyncRes.data && asyncRes.data.completed) {
                 // Merge results while preserving the original preuploadID
                 result = {
@@ -1006,19 +1015,19 @@ async function handleAsyncPolling(ctx, options) {
             } else {
                 ctx.log.info(`Async upload not yet complete, data: ${JSON.stringify(asyncRes.data || {})}`);
             }
-            
+
             // Periodically try file lookup as an alternative
             if (retries % lookupInterval === 0) {
                 try {
                     ctx.log.info(`Periodic file lookup attempt for ${fileName} (retry ${retries})`);
-                    const fileList = await getFileList(ctx, accessToken, parentFileID,storageType);
+                    const fileList = await getFileList(ctx, accessToken, parentFileID);
                     if (fileList && fileList.data && Array.isArray(fileList.data.fileList)) {
                         for (const file of fileList.data.fileList) {
                             if (file.filename === fileName) {
-                                ctx.log.info(`Found uploaded file in directory during polling: ${file.fileID}`);
+                                ctx.log.info(`Found uploaded file in directory during polling: ${file.fileId}`);
                                 return {
                                     completed: true,
-                                    fileID: file.fileID
+                                    fileID: file.fileId
                                 };
                             }
                         }
@@ -1027,13 +1036,13 @@ async function handleAsyncPolling(ctx, options) {
                     ctx.log.warn(`File lookup failed during polling: ${lookupError.message}`);
                 }
             }
-            
+
             retries++;
             // Calculate delay based on retry count and remaining time
             const timeLeft = endTime - Date.now();
             const idealDelay = retryDelay + (retries * 100); // Slightly increase delay with each retry
             const actualDelay = Math.min(idealDelay, timeLeft / 2); // Don't delay more than half of remaining time
-            
+
             if (actualDelay <= 0) {
                 ctx.log.warn(`No time left for polling delay, continuing immediately`);
             } else {
@@ -1046,25 +1055,25 @@ async function handleAsyncPolling(ctx, options) {
             if (error.message.includes('预上传ID不能为空') || error.message.includes('preuploadID')) {
                 consecutiveEmptyPreuploadErrors++;
                 ctx.log.warn(`PreuploadID error (${consecutiveEmptyPreuploadErrors}/${maxEmptyPreuploadRetries}): ${error.message}`);
-                
+
                 if (consecutiveEmptyPreuploadErrors >= maxEmptyPreuploadRetries) {
                     // Final attempt - try a direct file lookup
                     ctx.log.warn(`Multiple preuploadID errors, making final file lookup attempt...`);
-                    
+
                     try {
-                        const fileList = await getFileList(ctx, accessToken, parentFileID,storageType);
+                        const fileList = await getFileList(ctx, accessToken, parentFileID);
                         if (fileList && fileList.data && Array.isArray(fileList.data.fileList)) {
                             for (const file of fileList.data.fileList) {
                                 if (file.filename === fileName) {
-                                    ctx.log.info(`Found uploaded file in final lookup: ${file.fileID}`);
+                                    ctx.log.info(`Found uploaded file in final lookup: ${file.fileId}`);
                                     return {
                                         completed: true,
-                                        fileID: file.fileID
+                                        fileID: file.fileId
                                     };
                                 }
                             }
                         }
-                        
+
                         // If we've exhausted all retries and still haven't found the file
                         if (retries >= maxRetries) {
                             throw new Error(`Failed to recover from preuploadID errors after ${maxEmptyPreuploadRetries} attempts`);
@@ -1074,11 +1083,11 @@ async function handleAsyncPolling(ctx, options) {
                         throw new Error(`Failed to recover from preuploadID errors: ${lookupError.message}`);
                     }
                 }
-                
+
                 // Progressive backoff for preuploadID errors, but respect remaining time
                 const timeLeft = endTime - Date.now();
                 const errorDelay = Math.min(2000 * (consecutiveEmptyPreuploadErrors + 1), timeLeft / 2);
-                
+
                 if (errorDelay <= 0) {
                     ctx.log.warn(`No time left for error delay, continuing immediately`);
                 } else {
@@ -1088,33 +1097,33 @@ async function handleAsyncPolling(ctx, options) {
             } else {
                 // For other errors, log and continue with normal retries
                 ctx.log.error(`Error during async check: ${error.message}`);
-                
+
                 // Shorter delay for non-preuploadID errors
                 const timeLeft = endTime - Date.now();
                 const errorDelay = Math.min(retryDelay, timeLeft / 3);
-                
+
                 if (errorDelay > 0) {
                     await delay(errorDelay);
                 }
             }
         }
     }
-    
+
     // Check if we timed out
     if (Date.now() >= endTime) {
         ctx.log.warn(`Async polling timed out after ${(Date.now() - startTime) / 1000}s`);
-        
+
         // Try one final lookup before giving up
         try {
             ctx.log.info(`Final timeout file lookup attempt for ${fileName}`);
-            const fileList = await getFileList(ctx, accessToken, parentFileID,storageType);
+            const fileList = await getFileList(ctx, accessToken, parentFileID);
             if (fileList && fileList.data && Array.isArray(fileList.data.fileList)) {
                 for (const file of fileList.data.fileList) {
                     if (file.filename === fileName) {
-                        ctx.log.info(`Found uploaded file in timeout lookup: ${file.fileID}`);
+                        ctx.log.info(`Found uploaded file in timeout lookup: ${file.fileId}`);
                         return {
                             completed: true,
-                            fileID: file.fileID
+                            fileID: file.fileId
                         };
                     }
                 }
@@ -1122,34 +1131,34 @@ async function handleAsyncPolling(ctx, options) {
         } catch (err) {
             ctx.log.error(`Timeout lookup failed: ${err.message}`);
         }
-        
+
         throw new Error(`Async polling timed out after ${totalTimeoutMs / 1000} seconds`);
     }
-    
+
     // If we reach here without returning, we've failed to get a valid result
     if (!result.fileID) {
         throw new Error(`Async upload did not complete after ${maxRetries} attempts`);
     }
-    
+
     return result;
 }
 
 // Helper function to retry the async result with built-in retry
 async function getUploadAsyncResultWithRetry(ctx, accessToken, preuploadID, maxRetries = 2) {
     let lastError = null;
-    
+
     for (let i = 0; i <= maxRetries; i++) {
         try {
             return await uploadAsyncResult(ctx, accessToken, preuploadID);
         } catch (error) {
             lastError = error;
             if (i < maxRetries) {
-                ctx.log.warn(`uploadAsyncResult failed (attempt ${i+1}/${maxRetries+1}): ${error.message}, retrying...`);
+                ctx.log.warn(`uploadAsyncResult failed (attempt ${i + 1}/${maxRetries + 1}): ${error.message}, retrying...`);
                 await new Promise(resolve => setTimeout(resolve, 1000)); // 1 second delay between retries
             }
         }
     }
-    
+
     // If we get here, all retries failed
     throw lastError;
 }
@@ -1157,7 +1166,7 @@ async function getUploadAsyncResultWithRetry(ctx, accessToken, preuploadID, maxR
 // Add a function to handle image deletion
 async function handleRemove(files, ctx) {
     ctx.log.info(`Attempting to delete ${files.length} file(s) from 123pan`);
-    
+
     if (!files || files.length === 0) {
         return;
     }
@@ -1185,7 +1194,7 @@ async function handleRemove(files, ctx) {
         for (const file of panFiles) {
             try {
                 ctx.log.info(`Attempting to delete file: ${file.fileName}`);
-                
+
                 // Extract the fileID from the URL or other file properties
                 // Note: This is a placeholder - you'll need to modify based on how your URLs are structured
                 const fileIDMatch = file.imgUrl.match(/\/([a-zA-Z0-9]+)(?:\?|$)/);
@@ -1193,9 +1202,9 @@ async function handleRemove(files, ctx) {
                     ctx.log.error(`Could not extract fileID from URL: ${file.imgUrl}`);
                     continue;
                 }
-                
+
                 const fileID = fileIDMatch[1];
-                
+
                 // Delete file API call
                 const options = {
                     hostname: 'open-api.123pan.com',
@@ -1207,11 +1216,11 @@ async function handleRemove(files, ctx) {
                         'Authorization': `Bearer ${accessToken}`
                     }
                 };
-                
+
                 const data = JSON.stringify({
                     fileID: [fileID]
                 });
-                
+
                 const response = await makeRequest(options, data);
                 ctx.log.info(`File deletion response: ${JSON.stringify(response)}`);
                 ctx.emit('notification', {
@@ -1238,29 +1247,29 @@ const guiMenu = ctx => {
             label: 'Open API Configuration',
             async handle(ctx, guiApi) {
                 const config = ctx.getConfig('picBed.123pan') || {};
-                
+
                 // Show client ID input box
                 const clientID = await guiApi.showInputBox({
                     title: 'Configure 123pan Client ID',
                     placeholder: config.clientID || 'Enter your Client ID'
                 });
-                
+
                 if (!clientID) return; // User cancelled
-                
+
                 // Show client secret input box
                 const clientSecret = await guiApi.showInputBox({
                     title: 'Configure 123pan Client Secret',
                     placeholder: 'Enter your Client Secret'
                 });
-                
+
                 if (!clientSecret) return; // User cancelled
-                
+
                 // Show parent folder input box (optional)
                 const parentFolderName = await guiApi.showInputBox({
                     title: 'Configure Parent Folder (Optional)',
                     placeholder: config.parentFileID || 'Enter folder name or leave empty'
                 });
-                
+
                 // Save the configuration
                 ctx.saveConfig({
                     'picBed.123pan': {
@@ -1269,7 +1278,7 @@ const guiMenu = ctx => {
                         parentFileID: parentFolderName
                     }
                 });
-                
+
                 guiApi.showNotification({
                     title: 'Configuration Saved',
                     body: '123pan configuration has been updated!'
@@ -1283,19 +1292,19 @@ const guiMenu = ctx => {
                     title: 'Upload from URL',
                     placeholder: 'Enter image URL to upload'
                 });
-                
+
                 if (!url) return; // User cancelled
-                
+
                 try {
                     // Validate URL
                     new URL(url);
-                    
+
                     // Start upload process
                     guiApi.showNotification({
                         title: 'Uploading',
                         body: 'Downloading and uploading image...'
                     });
-                    
+
                     // Use the upload API
                     await guiApi.upload([url]);
                 } catch (error) {
@@ -1312,18 +1321,18 @@ const guiMenu = ctx => {
                 const files = await guiApi.showFileExplorer({
                     properties: ['openFile', 'multiSelections'],
                     filters: [
-                        { name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'] }
+                        {name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp']}
                     ]
                 });
-                
+
                 if (!files || !files.length) return; // User cancelled
-                
+
                 // Start upload process
                 guiApi.showNotification({
                     title: 'Uploading',
                     body: `Uploading ${files.length} image(s)...`
                 });
-                
+
                 // Use the upload API
                 await guiApi.upload(files);
             }
@@ -1344,7 +1353,7 @@ const commands = ctx => {
                     title: '123pan Upload',
                     body: 'Uploading image from clipboard...'
                 });
-                
+
                 // Upload from clipboard
                 ctx.upload();
             }
@@ -1359,7 +1368,7 @@ module.exports = (ctx) => {
             name: '123Pan',
             config: config
         });
-        
+
         // Register the event listener for image deletion
         ctx.on('remove', (files, guiApi) => {
             handleRemove(files, ctx);
